@@ -12,14 +12,19 @@
       url: "{{ base_image_url }}"
       dest: "/tmp/{{ base_image_name }}"
 
-  - name: Copy base image to libvirt directory
+  - name: Copy image
     copy:
       src: "/tmp/{{ base_image_name }}"
       dest: "{{ libvirt_pool_dir }}/{{ vm_name }}.qcow2"
-      force: no
-      remote_src: yes 
       mode: 0660
     register: copy_results
+
+  - name: Resize image
+    command: |
+      qemu-img resize \
+      "{{ libvirt_pool_dir }}/{{ vm_name }}.qcow2" \
+      +{{ vm_disk_size }}
+    when: copy_results is changed
 
   - name: Configure the image
     command: |
@@ -37,6 +42,7 @@
   - name: Define vm
     community.libvirt.virt:
       command: define
+      autostart: yes
       xml: "{{ lookup('template', 'vm-template.xml.j2') }}"
 
   # End of block
