@@ -1,0 +1,62 @@
+---
+- name: Get VMs list
+  community.libvirt.virt:
+    command: list_vms
+  register: existing_vms
+  changed_when: no
+
+- name: Create VM if does not exist
+  block:
+  - name: Download base image
+    get_url:
+      url: "{{ base_image_url }}"
+      dest: "/tmp/{{ base_image_name }}"
+
+  - name: Copy base image to libvirt directory
+    copy:
+      src: "/tmp/{{ base_image_name }}"
+      dest: "{{ libvirt_pool_dir }}/{{ vm_name }}.qcow2"
+      force: no
+      remote_src: yes 
+      mode: 0660
+    register: copy_results
+
+  - name: Configure the image
+    command: |
+      virt-customize \
+      --add {{ libvirt_pool_dir }}/{{ vm_name }}.qcow2 \
+      --hostname {{ vm_name }} \
+      --ssh-inject 'root:file:{{ ssh_key }}' \
+      --uninstall cloud-init \
+      --uninstall openssh-server \
+      --update \
+      --install openssh-server \
+      --selinux-relabel
+    when: copy_results is changed
+
+  - name: Define vm
+    community.libvirt.virt:
+      command: define
+      xml: "{{ lookup('template', 'vm-template.xml.j2') }}"
+
+  # End of block
+  when: "vm_name not in existing_vms.list_vms"
+
+- name: Ensure VM is started
+  community.libvirt.virt:
+    name: "{{ vm_name }}"
+    state: running
+  register: vm_start_results
+  until: "vm_start_results is success"
+  retries: 15
+  delay: 2
+
+- name: Ensure temporary file is deleted
+  file:
+    path: "/tmp/{{ base_image_name }}"
+    state: absent
+  when: cleanup_tmp | bool
+
+# To get the osmtileserver IP address:
+#
+#     sudo virsh domifaddr osmtileserver

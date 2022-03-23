@@ -1,0 +1,8 @@
+# Hypervisor
+libvirt_pool_dir: "/var/lib/libvirt/images"
+bridge_name: virbr0
+bridge_ip: 192.168.122.1
+bridge_netmask: 255.255.255.0
+ip_start: 192.168.122.2
+ip_end: 192.168.122.254
+network_name: default
