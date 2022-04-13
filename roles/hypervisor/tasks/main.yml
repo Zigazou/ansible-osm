@@ -17,19 +17,46 @@
     name: libvirtd
     enabled: true
     state: started
+  become: yes
 
 - name: Create default network
   community.libvirt.virt_net:
     command: define
     name: "{{ network_name }}"
     xml: "{{ lookup('template', 'vm-net-default.xml.j2') }}"
+  become: yes
 
 - name: Autostart default network
   community.libvirt.virt_net:
     autostart: yes
     name: "{{ network_name }}"
+  become: yes
 
-- name: "Start default network"
+- name: Start default network
   community.libvirt.virt_net:
     state: active
     name: "{{ network_name }}"
+  become: yes
+
+#- name: Install user SSH key
+#  ansible.posix.authorized_key:
+#    user: root
+#    state: present
+#    key: "{{ lookup('file', ssh_key_public }}"
+#
+#- name: Install OSM tile server certificate
+#  ansible.builtin.copy:
+#    src: '{{ item.src }}'
+#    path: '{{ item.path }}'
+#    owner: root
+#    group: root
+#    mode: '{{ item.mode }}'
+#  no_log: true
+#  with_items:
+#    - src:  '{{ osmtileserver_ssh_key_public }}'
+#      path: /root/.ssh/{{ osmtileserver_ssh_key_name }}.pub
+#      mode: '0644'
+#    - src:  '{{ osmtileserver_ssh_key_private }}'
+#      path: /root/.ssh/{{ osmtileserver_ssh_key_name }}
+#      mode: '0600'
+#

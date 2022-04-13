@@ -3,9 +3,11 @@
   community.libvirt.virt:
     command: list_vms
   register: existing_vms
+  become: yes
   changed_when: no
 
-- name: Create VM if does not exist
+- name: Create VM if it does not exist
+  when: "vm_name not in existing_vms.list_vms"
   block:
   - name: Download base image
     get_url:
@@ -13,6 +15,7 @@
       dest: "/tmp/{{ base_image_name }}"
 
   - name: Copy image
+    become: yes
     copy:
       src: "/tmp/{{ base_image_name }}"
       dest: "{{ libvirt_pool_dir }}/{{ vm_name }}.qcow2"
@@ -20,6 +23,7 @@
     register: copy_results
 
   - name: Resize image
+    become: yes
     command: |
       qemu-img resize \
       "{{ libvirt_pool_dir }}/{{ vm_name }}.qcow2" \
@@ -27,26 +31,25 @@
     when: copy_results is changed
 
   - name: Configure the image
+    become: yes
     command: |
       virt-customize \
       --add {{ libvirt_pool_dir }}/{{ vm_name }}.qcow2 \
       --hostname {{ vm_name }} \
-      --ssh-inject 'root:file:{{ ssh_key }}' \
+      --ssh-inject 'root:file:{{ ssh_key_public }}' \
       --uninstall cloud-init \
       --uninstall openssh-server \
       --update \
       --install openssh-server \
+      --install avahi-daemon \
       --selinux-relabel
-    when: copy_results is changed
 
-  - name: Define vm
+  - name: Define VM
+    become: yes
     community.libvirt.virt:
       command: define
       autostart: yes
       xml: "{{ lookup('template', 'vm-template.xml.j2') }}"
-
-  # End of block
-  when: "vm_name not in existing_vms.list_vms"
 
 - name: Ensure VM is started
   community.libvirt.virt:
@@ -56,13 +59,16 @@
   until: "vm_start_results is success"
   retries: 15
   delay: 2
+  become: yes
+
+- name: Ensure VM answers to {{ vm_name }}.local
+  ansible.builtin.wait_for:
+    host: "{{ vm_name }}.local"
+    port: 22
+    connect_timeout: 10
 
 - name: Ensure temporary file is deleted
   file:
     path: "/tmp/{{ base_image_name }}"
     state: absent
   when: cleanup_tmp | bool
-
-# To get the osmtileserver IP address:
-#
-#     sudo virsh domifaddr osmtileserver

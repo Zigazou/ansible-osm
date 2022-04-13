@@ -1,0 +1,26 @@
+all:
+  vars:
+    local_user: fred
+    ssh_key_public: "/home/{{ local_user }}/.ssh/id_ed25519.pub"
+    ssh_key_private: "/home/{{ local_user }}/.ssh/id_ed25519"
+    hypervisor_user: fred
+    hypervisor_host: localhost
+    osmtileserver_user: osmtileserver
+    osmtileserver_ssh_key_name: id_{{ osmtileserver_user }}_ed25519
+    osmtileserver_ssh_key_public: "/home/{{ local_user }}/.ssh/{{ osmtileserver_ssh_key_name }}.pub"
+    osmtileserver_ssh_key_private: "/home/{{ local_user }}/.ssh/{{ osmtileserver_ssh_key_name }}"
+    mapdata_url: https://download.geofabrik.de/europe/france/haute-normandie-latest.osm.pbf
+  children:
+    hypervisor:
+      vars:
+        ansible_user: "{{ hypervisor_user }}"
+      hosts:
+        localhost:
+    osmtileserver:
+      vars:
+        ansible_user: root
+        ansible_ssh_private_key_file: "{{ osmtileserver_ssh_key_private }}"
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -J {{ hypervisor_user }}@{{ hypervisor_host }} -i {{ ssh_key_private }}"
+        ansible_remote_tmp: /tmp
+      hosts:
+        osmtileserver.local:

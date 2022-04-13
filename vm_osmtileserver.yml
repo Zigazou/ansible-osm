@@ -1,0 +1,12 @@
+- name: Configure hypervisor and OSM tile server VM
+  hosts: hypervisor
+  gather_facts: yes
+  roles:
+    - hypervisor
+    - osmtileserver_vm
+
+- name: Install OSM tile server
+  gather_facts: yes
+  hosts: osmtileserver
+  roles:
+    - osmtileserver

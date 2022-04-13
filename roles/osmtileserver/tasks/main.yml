@@ -1,0 +1,186 @@
+- name: Installing packages
+  package:
+    name:
+      - sudo
+      - screen
+      - locate
+      - libapache2-mod-tile
+      - renderd
+      - git
+      - tar
+      - unzip
+      - wget
+      - bzip2
+      - apache2
+      - lua5.1
+      - mapnik-utils
+      - python3-psycopg2
+      - python3-yaml
+      - gdal-bin
+      - npm
+      - fonts-noto-cjk
+      - fonts-noto-hinted
+      - fonts-noto-unhinted
+      - ttf-unifont
+  become: yes
+
+- name: Create OSM tile server user
+  ansible.builtin.user:
+    name: "{{ osmtileserver_user }}"
+    shell: /bin/bash
+    groups: sudo
+    append: yes
+
+- name: Create renderd PostgreSQL user
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_user:
+    name: _renderd
+
+- name: Create gis database
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_db:
+    name: gis
+    encoding: UTF-8
+    owner: _renderd
+
+- name: Create postgis and hstore extension
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_ext:
+    name: "{{ item }}"
+    db: gis
+  loop:
+    - postgis
+    - hstore
+
+- name: Set tables geometry_columns and spatial_ref_sys
+  become: yes
+  become_user: postgres
+  community.postgresql.postgresql_owner:
+    db: gis
+    new_owner: _renderd
+    obj_name: "{{ item }}"
+    obj_type: table
+  loop:
+    - geometry_columns
+    - spatial_ref_sys
+
+- name: Create directories needed for installation of data
+  ansible.builtin.file:
+    path: /home/{{ osmtileserver_user }}/{{ item }}
+    state: directory
+    owner: "{{ osmtileserver_user }}"
+    group: "{{ osmtileserver_user }}"
+    mode: '0755'
+  loop:
+    - src
+    - data
+
+- name: Install OpenStreetMap carto repository
+  become: yes
+  become_user: "{{ osmtileserver_user }}"
+  ansible.builtin.git:
+    repo: https://github.com/gravitystorm/openstreetmap-carto.git
+    dest: /home/{{ osmtileserver_user }}/src/openstreetmap-carto
+
+- name: Install carto
+  community.general.npm:
+    name: carto
+    global: yes
+
+- name: Install custom scripts
+  ansible.builtin.copy:
+    src: "{{ role_path }}/files/{{ item.script }}"
+    dest: /home/{{ osmtileserver_user }}/{{ item.directory }}/{{ item.script }}
+    owner: "{{ osmtileserver_user }}"
+    group: "{{ osmtileserver_user }}"
+    mode: '0755'
+  loop:
+    - script: generate_mapnik_xml.bash
+      directory: src/openstreetmap-carto
+    - script: create_indexes.bash
+      directory: src/openstreetmap-carto
+
+- name: Generate mapnik.xml
+  become: yes
+  become_user: "{{ osmtileserver_user }}"
+  ansible.builtin.command:
+    chdir: /home/{{ osmtileserver_user }}/src/openstreetmap-carto
+    cmd: ./generate_mapnik_xml.bash
+    creates: /home/{{ osmtileserver_user }}/src/openstreetmap-carto/mapnik.xml
+
+- name: Download geographic data
+  ansible.builtin.get_url:
+    url: "{{ mapdata_url }}"
+    dest: /home/{{ osmtileserver_user }}/data/data.osm.pbf
+    owner: "{{ osmtileserver_user }}"
+    group: "{{ osmtileserver_user }}"
+    mode: '0644'
+    timeout: 30
+
+- name: Install import script
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/import_mapdata.bash.j2"
+    dest: /home/{{ osmtileserver_user }}/data/import_mapdata.bash
+    owner: "{{ osmtileserver_user }}"
+    group: "{{ osmtileserver_user }}"
+    mode: '0755'
+
+- name: Import map data into database
+  become: yes
+  become_user: _renderd
+  command:
+    chdir: /home/{{ osmtileserver_user }}/data
+    cmd: ./import_mapdata.bash
+    creates: /tmp/import_done
+
+- name: Create indexes
+  become: yes
+  become_user: _renderd
+  command:
+    chdir: /home/{{ osmtileserver_user }}/src/openstreetmap-carto
+    cmd: ./create_indexes.bash
+    creates: /tmp/indexes_done
+
+- name: Create data directory in openstreetmap-carto
+  ansible.builtin.file:
+    path: /home/{{ osmtileserver_user }}/src/openstreetmap-carto/data
+    owner: _renderd
+    group: "{{ osmtileserver_user }}"
+    mode: '0755'
+    state: directory
+
+- name: Get external shapefile
+  become: yes
+  become_user: _renderd
+  ansible.builtin.command:
+    chdir: /home/{{ osmtileserver_user }}/src/openstreetmap-carto
+    cmd: scripts/get-external-data.py
+    creates: /home/{{ osmtileserver_user }}/src/openstreetmap-carto/data/water_polygons/water-polygons-split-3857/water_polygons.prj
+
+- name: Setup renderd.conf
+  ansible.builtin.template:
+    src: "{{ role_path }}/templates/renderd.conf.j2"
+    dest: /etc/renderd.conf
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Create mod_tile directory
+  ansible.builtin.file:
+    path: /var/lib/mod_tile
+    owner: _renderd
+    group: root
+    mode: '0755'
+    state: directory
+
+- name: Restarting renderd and apache2
+  ansible.builtin.sysvinit:
+      name: "{{ item }}"
+      state: restarted
+      enabled: yes
+  loop:
+    - renderd
+    - apache2

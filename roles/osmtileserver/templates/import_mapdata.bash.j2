@@ -1,0 +1,13 @@
+#!/bin/bash
+osm2pgsql \
+    -d gis \
+    --create \
+    --slim  \
+    -G \
+    --hstore \
+    --tag-transform-script /home/{{ osmtileserver_user }}/src/openstreetmap-carto/openstreetmap-carto.lua \
+    -C 2500 \
+    --number-processes 2 \
+    -S /home/{{ osmtileserver_user }}/src/openstreetmap-carto/openstreetmap-carto.style \
+    /home/{{ osmtileserver_user }}/data/data.osm.pbf \
+    && touch /tmp/import_done

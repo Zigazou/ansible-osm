@@ -9,4 +9,3 @@ vm_vcpus: 2
 vm_ram_mb: 4096
 vm_disk_size: 20G
 cleanup_tmp: no
-ssh_key: "/home/fred/.ssh/id_osm_ed25519.pub"
