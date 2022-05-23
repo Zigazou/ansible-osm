@@ -10,6 +10,8 @@ all:
     osmtileserver_ssh_key_public: "/home/{{ local_user }}/.ssh/{{ osmtileserver_ssh_key_name }}.pub"
     osmtileserver_ssh_key_private: "/home/{{ local_user }}/.ssh/{{ osmtileserver_ssh_key_name }}"
     mapdata_url: https://download.geofabrik.de/europe/france/haute-normandie-latest.osm.pbf
+    mapdata_poly: https://download.geofabrik.de/europe/france/haute-normandie.poly
+    mapdata_date: "2022-05-22T20:21:41Z"
   children:
     hypervisor:
       vars:

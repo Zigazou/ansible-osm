@@ -1,5 +1,5 @@
 - name: Installing packages
-  package:
+  ansible.builtin.package:
     name:
       - sudo
       - screen
@@ -22,6 +22,10 @@
       - fonts-noto-hinted
       - fonts-noto-unhinted
       - ttf-unifont
+      - osmosis
+      - python3-shapely
+      - python3-lxml
+    state: latest
   become: yes
 
 - name: Create OSM tile server user
@@ -120,6 +124,15 @@
     mode: '0644'
     timeout: 30
 
+- name: Download poly file
+  ansible.builtin.get_url:
+    url: "{{ mapdata_url }}"
+    dest: /home/{{ osmtileserver_user }}/data/data.osm.pbf.poly
+    owner: "{{ osmtileserver_user }}"
+    group: "{{ osmtileserver_user }}"
+    mode: '0644'
+    timeout: 30
+
 - name: Install import script
   ansible.builtin.template:
     src: "{{ role_path }}/templates/import_mapdata.bash.j2"
@@ -184,3 +197,71 @@
   loop:
     - renderd
     - apache2
+
+- name: Install Regional repository
+  become: yes
+  become_user: "{{ osmtileserver_user }}"
+  ansible.builtin.git:
+    repo: https://github.com/zverik/regional
+    dest: /home/{{ osmtileserver_user }}/src/regional
+
+- name: Make trim_osc.py executable
+  ansible.builtin.file:
+    path: /home/{{ osmtileserver_user }}/src/regional/trim_osc.py
+    mode: '0755'
+
+- name: Fetch Switch2OSM mod_tile
+  become: yes
+  become_user: "{{ osmtileserver_user }}"
+  ansible.builtin.git:
+    version: switch2osm
+    repo: https://github.com/SomeoneElseOSM/mod_tile.git
+    dest: /home/{{ osmtileserver_user }}/src/mod_tile
+    force: yes
+
+- name: Set trim region in openstreetmap-tiles-update-expire script
+  ansible.builtin.replace:
+    regexp: '^TRIM_REGION_OPTIONS=.*$'
+    replace: 'TRIM_REGION_OPTIONS="-p /home/{{ osmtileserver_user }}/data/data.osm.pbf.poly"'
+    path: /home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire
+
+- name: Set account in openstreetmap-tiles-update-expire script
+  ansible.builtin.replace:
+    regexp: '^ACCOUNT=.*$'
+    replace: 'ACCOUNT="{{ osmtileserver_user }}"'
+    path: /home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire
+
+- name: Set OSM2PGSQL options in openstreetmap-tiles-update-expire script
+  ansible.builtin.replace:
+    regexp: '^OSM2PGSQL_OPTIONS=.*$'
+    replace: 'OSM2PGSQL_OPTIONS="-d $DBNAME --tag-transform-script /home/{{ osmtileserver_user }}/src/openstreetmap-carto/openstreetmap-carto.lua -S /home/{{ osmtileserver_user }}/src/openstreetmap-carto/openstreetmap-carto.style"'
+    path: /home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire
+
+- name: Create /var/log/tiles directory
+  ansible.builtin.file:
+    path: /var/log/tiles
+    state: directory
+    owner: _renderd
+
+- name: Run openstreetmap-tiles-update-expire script to set state
+  become: yes
+  become_user: _renderd
+  ansible.builtin.command:
+    argv:
+      - "/home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire"
+      - "{{ mapdata_date }}"
+    creates: /var/lib/mod_tile/.osmosis/state.txt
+
+- name: Run openstreetmap-tiles-update-expire script to update data
+  become: yes
+  become_user: _renderd
+  ansible.builtin.command:
+    cmd: /home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire
+
+- name: Run openstreetmap-tiles-update-expire every hour
+  become: yes
+  become_user: _renderd
+  ansible.builtin.cron:
+    name: "update tiles"
+    minute: "*/5"
+    job: "/home/{{ osmtileserver_user }}/src/mod_tile/openstreetmap-tiles-update-expire"
